@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { calcDayTotals } from '../utils/storage';
+import { calcDayTotals, timeOfDay } from '../utils/storage';
 import { MacroRing, MacroBar, MacroChip, Card, SectionLabel, Btn, Tag, Alert, Toggle } from './UI';
 
 function MealCard({ meal, onDelete }) {
@@ -23,10 +23,41 @@ function MealCard({ meal, onDelete }) {
   );
 }
 
+// Idées repas locales selon macros restantes et moment de la journée
+function generateMealIdeas(remaining, moment) {
+  const ideas = [];
+
+  const highProtein = remaining.protein > 20;
+  const highCarbs = remaining.carbs > 40;
+  const lowCal = remaining.calories < 300;
+
+  if (moment === 'matin') {
+    ideas.push({ name: 'Overnight porridge', cal: 454, prot: 21, note: 'Flocons avoine + lait avoine + Skyr + chia — boost protéines + glucides complexes' });
+    ideas.push({ name: 'Shaker Nu3 + banane', cal: 214, prot: 23, note: 'Rapide, riche en protéines végétales, énergie avant entraînement' });
+    ideas.push({ name: 'Toast de riz + œufs brouillés', cal: 280, prot: 18, note: 'Sans lactose, glucides rapides + protéines complètes' });
+  } else if (moment === 'midi' || moment === 'après-midi') {
+    ideas.push({ name: 'Salade pâtes complètes', cal: 350, prot: 25, note: 'Pâtes + tomates cerises + mozzarella végane + bœuf séché — repas équilibré' });
+    ideas.push({ name: 'Poulet riz + haricots verts', cal: 420, prot: 35, note: 'Protéines complètes, glucides complexes, préparation 12 min' });
+    ideas.push({ name: 'Wrap de riz thon végétal + crudités', cal: 320, prot: 22, note: 'Léger et rassasiant, idéal post-entraînement midi' });
+  } else {
+    ideas.push({ name: 'Shaker Nu3 + banane', cal: 214, prot: 23, note: 'Collation rapide pour combler les protéines de la journée' });
+    ideas.push({ name: 'Bjorg choco lait + pomme', cal: 438, prot: 5, note: 'Recharge glucidique en fin de journée ou pré-entraînement' });
+    ideas.push({ name: 'Riz sauté œufs + légumes', cal: 380, prot: 20, note: 'Dîner rapide (<15 min), sans lactose, complet' });
+  }
+
+  // Ajout idée légère si peu de calories restantes
+  if (lowCal && ideas.length === 3) {
+    ideas[2] = { name: 'Compote + amandes (30g)', cal: 180, prot: 5, note: 'Snack léger pour finir la journée sans dépasser tes calories' };
+  }
+
+  return ideas.slice(0, 3);
+}
+
 export default function Journal({ dayData, targets, profile, onUpdateDay, onNavigateAdd }) {
   const { meals = [], supplements = [], steps = 0, summary = '' } = dayData;
   const totals = calcDayTotals(meals);
-  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [ideaLoading, setIdeaLoading] = useState(false);
+  const [ideaText, setIdeaText] = useState('');
   const [alert, setAlert] = useState(null);
 
   const showAlert = (msg, type = 'success') => {
@@ -36,11 +67,34 @@ export default function Journal({ dayData, targets, profile, onUpdateDay, onNavi
 
   const handleDeleteMeal = (id) => {
     onUpdateDay({ ...dayData, meals: meals.filter(m => m.id !== id), summary: '' });
+    setIdeaText('');
   };
 
   const handleToggleSupp = (id) => {
     const updated = supplements.map(s => s.id === id ? { ...s, taken: !s.taken } : s);
     onUpdateDay({ ...dayData, supplements: updated });
+  };
+
+  const handleIdea = () => {
+    setIdeaLoading(true);
+    setIdeaText('');
+    setTimeout(() => {
+      const remaining = {
+        calories: targets.calories - totals.calories,
+        protein: targets.protein - totals.protein,
+        carbs: targets.carbs - totals.carbs,
+      };
+      const moment = timeOfDay();
+      const ideas = generateMealIdeas(remaining, moment);
+      const lines = ideas.map(i =>
+        `• ${i.name} (~${i.cal} kcal, ~${i.prot}g prot)\n  → ${i.note}`
+      ).join('\n\n');
+      const intro = remaining.calories > 0
+        ? `Il te reste ~${remaining.calories} kcal et ~${remaining.protein}g de protéines à combler ce ${moment}. Voici 3 idées :\n\n`
+        : `Tu as atteint tes calories pour aujourd'hui ! Voici des options légères si tu as encore faim :\n\n`;
+      setIdeaText(intro + lines);
+      setIdeaLoading(false);
+    }, 600);
   };
 
   const handleSummary = () => {
@@ -60,8 +114,6 @@ export default function Journal({ dayData, targets, profile, onUpdateDay, onNavi
     bilan += `Compléments pris : ${suppTaken}/${supplements.length}.`;
     onUpdateDay({ ...dayData, summary: bilan });
   };
-
-  const pctCal = Math.min(totals.calories / (targets.calories || 1), 1);
 
   return (
     <div>
